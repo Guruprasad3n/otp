@@ -1,6 +1,6 @@
 "use client";
 
-import { Center, Heading } from "@chakra-ui/react";
+import { Center, Heading, Toast, useToast } from "@chakra-ui/react";
 import {
   Button,
   FormControl,
@@ -15,15 +15,36 @@ import { useState } from "react";
 
 export default function Verify() {
   const [isOtp, setIsOtp] = useState("");
-  const handleVerify = () => {};
+  const toast = useToast();
+  const handleVerify = () => {
+    try {
+      if (isOtp === "123456") {
+        toast({
+          title: `Verification Success`,
+          status: `success`,
+          duration: 3000,
+          isClosable: true,
+        });
+      } else {
+        toast({
+          title: `Verification Failed`,
+          status: `error`,
+          duration: 3000,
+          isClosable: true,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: `Verification Failed`,
+        status: `error`,
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  };
 
   return (
-    <Flex
-      minH={"100vh"}
-      align={"center"}
-      justify={"center"}
-      bg={useColorModeValue("gray.50", "gray.800")}
-    >
+    <Flex minH={"100vh"} align={"center"} justify={"center"} bg={"#242424"}>
       <Stack
         spacing={4}
         w={"full"}
