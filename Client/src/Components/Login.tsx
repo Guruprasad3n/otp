@@ -1,6 +1,5 @@
 "use client";
 import React, { useState } from "react";
-
 import {
   Button,
   FormControl,
@@ -13,26 +12,25 @@ import {
   Spinner,
   useToast,
 } from "@chakra-ui/react";
+import Cookies from "js-cookie";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-type ForgotPasswordFormInputs = {
-  mobile: string;
-};
 
-export default function Login() {
-  // bg={useColorModeValue('gray.50', 'gray.800')}
-  const [isMobile, setIsMobile] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+interface LoginProps {}
+
+const Login: React.FC<LoginProps> = () => {
+  const [isMobile, setIsMobile] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const toast = useToast();
   const navigate = useNavigate();
-
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
       setIsLoading(true);
-      const res = axios.post(`http://localhost:3000/api/otp/generate`, {
+      const res = await axios.post(`http://localhost:3000/api/otp/generate`, {
         identifier: isMobile,
       });
-
+      // document.cookie = `mobileNumber=${encodeURIComponent(isMobile)}; path=/`;
+      Cookies.set("mobileNumber", isMobile);
       toast({
         title: "OTP Sending Please Wait",
         description: `We are sending an OTP to ${isMobile}.`,
@@ -51,14 +49,11 @@ export default function Login() {
         });
         navigate("/verify");
       }, 3000);
-
-      //   setIsLoading(false);
-
       console.log(res);
     } catch (error) {
       setIsLoading(false);
       toast({
-        title: `${error} toast`,
+        title: `Enter Correct Mobile Number`,
         status: `error`,
         isClosable: true,
       });
@@ -112,4 +107,5 @@ export default function Login() {
       </Stack>
     </Flex>
   );
-}
+};
+export default Login;

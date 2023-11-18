@@ -28,7 +28,7 @@ export default function Verify() {
       } else {
         toast({
           title: `Verification Failed`,
-          status: `error`,
+          status: `warning`,
           duration: 3000,
           isClosable: true,
         });
