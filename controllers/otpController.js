@@ -6,9 +6,30 @@ const authToken = process.env.TWILIO_AUTH_TOKEN || "";
 
 const client = twilio(accountSid, authToken);
 
+const MAX_FAILED_ATTEMPTS = 3;
+const LOCKOUT_DURATION_MINUTES = 15;
+
 const generateOtp = async (req, res) => {
   try {
     const { identifier } = req.body;
+
+    // Check if the user is temporarily locked out
+    const lockedUser = await OtpModel.findOne({
+      identifier,
+      lockoutUntil: { $gt: new Date() },
+    });
+
+    if (lockedUser) {
+      const lockoutRemainingMinutes = Math.ceil(
+        (lockedUser.lockoutUntil - new Date()) / (60 * 1000)
+      );
+
+      return res.status(400).send({
+        success: false,
+        error: "Verification Limit Exceeded",
+        message: `You have exceeded the maximum verification attempts. Please try again after ${lockoutRemainingMinutes} minutes.`,
+      });
+    }
 
     // Generate a random 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000);
@@ -27,31 +48,37 @@ const generateOtp = async (req, res) => {
       // Add the new OTP to the existing array
       otpRecord.passwords.push({
         code: otp,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      }); // 10 minutes expiration
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes expiration
+      });
+      otpRecord.failedAttempts = 0;
       await otpRecord.save();
     } else {
       // Create a new OTP record if the user doesn't exist
       const sendOTP = new OtpModel({
         identifier,
         passwords: [
-          { code: otp, expiresAt: new Date(Date.now() + 10 * 60 * 1000) },
-        ], // 10 minutes expiration
+          { code: otp, expiresAt: new Date(Date.now() + 5 * 60 * 1000) }, // 5 minutes expiration
+        ],
+        failedAttempts: 0,
       });
       await sendOTP.save();
     }
 
     console.log("OTP sent successfully:", message.sid);
 
-    res
-      .status(200)
-      .send({ message: "OTP sent successfully", otpSid: message.sid, success:true });
+    res.status(200).send({
+      message: "OTP sent successfully",
+      otpSid: message.sid,
+      success: true,
+    });
   } catch (error) {
     console.error("Error generating OTP:", error);
 
-    res
-      .status(500)
-      .send({ error: "Internal server error", message: error.message, success:false });
+    res.status(500).send({
+      error: "Internal server error",
+      message: error.message,
+      success: false,
+    });
   }
 };
 
@@ -74,16 +101,42 @@ const verifyOtp = async (req, res) => {
       });
     }
 
-    // Sort the otpList array to get the latest OTP
-    const sortedOtpList = otpRecord.passwords.sort(
-      (a, b) => b.requestedAt - a.requestedAt
-    );
-    const latestOTP = sortedOtpList[0];
-    console.log(latestOTP.code);
+    // Check if the account is locked due to too many failed attempts
+    if (otpRecord.failedAttempts >= MAX_FAILED_ATTEMPTS) {
+      const lockoutEndTime = new Date(otpRecord.lockoutUntil);
 
-    // Calculate expiration time (10 minutes from creation)
+      if (lockoutEndTime > new Date()) {
+        const remainingLockoutTime = Math.ceil(
+          (lockoutEndTime - new Date()) / (LOCKOUT_DURATION_MINUTES * 60 * 1000)
+        );
+
+        return res.status(403).send({
+          success: false,
+          error: "Account locked",
+          message: `Too many failed attempts. Try again after ${remainingLockoutTime} minutes.`,
+        });
+      } else {
+        // Reset lockout timestamp and failed attempts if the lockout period has passed
+        otpRecord.failedAttempts = 0;
+        otpRecord.lockoutUntil = null;
+      }
+    }
+
+    // Access the latest OTP directly using $slice
+    const latestOTP = otpRecord.passwords.slice(-1)[0];
+
+    // Check if the OTP has already been verified
+    if (latestOTP.verified) {
+      return res.status(400).send({
+        success: false,
+        error: "Invalid OTP",
+        message: "This OTP has already been used.",
+      });
+    }
+
+    // Calculate expiration time (15 minutes from creation)
     const expirationTime = new Date(
-      latestOTP.requestedAt.getTime() + 10 * 60 * 1000
+      latestOTP.expiresAt.getTime() + LOCKOUT_DURATION_MINUTES * 60 * 1000
     );
 
     // Check if the OTP has expired
@@ -99,18 +152,46 @@ const verifyOtp = async (req, res) => {
     if (latestOTP.code === userEnteredOTP) {
       // Mark the OTP as verified
       latestOTP.verified = true;
-      await otpRecord.save();
+      otpRecord.failedAttempts = 0;
+      otpRecord.lockoutUntil = null;
+    } else {
+      // Increment failed attempts
+      otpRecord.failedAttempts += 1;
 
+      if (otpRecord.failedAttempts >= MAX_FAILED_ATTEMPTS) {
+        otpRecord.lockoutUntil = new Date(
+          Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000
+        );
+      }
+    }
+
+    await otpRecord.save();
+
+    // Respond based on the verification result
+    if (latestOTP.verified) {
       return res.status(200).send({
         success: true,
         message: "OTP verified successfully",
       });
     } else {
-      return res.status(400).send({
+      // Include information about lockout in the response
+      const response = {
         success: false,
         error: "Invalid OTP",
         message: "Please enter a valid OTP.",
-      });
+      };
+
+      if (otpRecord.lockoutUntil) {
+        const remainingLockoutTime = Math.ceil(
+          (otpRecord.lockoutUntil - new Date()) / (60 * 1000) // convert milliseconds to minutes
+        );
+        response.lockout = {
+          until: otpRecord.lockoutUntil,
+          remainingTime: remainingLockoutTime,
+        };
+      }
+
+      return res.status(400).send(response);
     }
   } catch (error) {
     console.error("Error verifying OTP:", error);
@@ -122,8 +203,24 @@ const verifyOtp = async (req, res) => {
   }
 };
 
+const cleanupOtps = async () => {
+  // Remove verified OTPs
+  await OtpModel.updateMany(
+    { "passwords.verified": true },
+    { $pull: { passwords: { verified: true } } }
+  );
 
-module.exports = { generateOtp, verifyOtp };
+  // Remove expired OTPs older than 2 days
+  const twoDaysAgo = new Date(Date.now() - 0 * 24 * 60 * 60 * 1000);
+  await OtpModel.updateMany(
+    { "passwords.expiresAt": { $lt: twoDaysAgo } },
+    { $pull: { passwords: { expiresAt: { $lt: twoDaysAgo } } } }
+  );
+};
+
+// Call the cleanup function at a regular interval, for example, every hour
+
+module.exports = { generateOtp, verifyOtp, cleanupOtps };
 
 // =========================================================================================
 // Working Code
