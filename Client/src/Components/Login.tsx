@@ -32,6 +32,7 @@ const Login: React.FC<LoginProps> = () => {
       console.log(res.data)
       // document.cookie = `mobileNumber=${encodeURIComponent(isMobile)}; path=/`;
       const abc = Cookies.set("mobileNumber", isMobile);
+      localStorage.setItem("mobileNumber", isMobile)
       console.log(abc)
       toast({
         title: "OTP Sending Please Wait",
