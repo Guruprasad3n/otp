@@ -45,13 +45,13 @@ const generateOtp = async (req, res) => {
 
     res
       .status(200)
-      .send({ message: "OTP sent successfully", otpSid: message.sid });
+      .send({ message: "OTP sent successfully", otpSid: message.sid, success:true });
   } catch (error) {
     console.error("Error generating OTP:", error);
 
     res
       .status(500)
-      .send({ error: "Internal server error", message: error.message });
+      .send({ error: "Internal server error", message: error.message, success:false });
   }
 };
 
@@ -68,26 +68,31 @@ const verifyOtp = async (req, res) => {
       otpRecord.passwords.length === 0
     ) {
       return res.status(404).send({
+        success: false,
         error: "OTP not found",
         message: "Please generate a new OTP.",
       });
     }
 
     // Sort the otpList array to get the latest OTP
-    var bc = otpRecord.passwords.sort((a, b) => b.requestedAt - a.requestedAt);
-    const latestOTP = otpRecord.passwords[0];
+    const sortedOtpList = otpRecord.passwords.sort(
+      (a, b) => b.requestedAt - a.requestedAt
+    );
+    const latestOTP = sortedOtpList[0];
     console.log(latestOTP.code);
 
-    // Calculate expiration time (2 minutes from creation)
+    // Calculate expiration time (10 minutes from creation)
     const expirationTime = new Date(
       latestOTP.requestedAt.getTime() + 10 * 60 * 1000
     );
 
     // Check if the OTP has expired
     if (expirationTime < new Date()) {
-      return res
-        .status(400)
-        .send({ error: "OTP expired", message: "Please generate a new OTP." });
+      return res.status(400).send({
+        success: false,
+        error: "OTP expired",
+        message: "Please generate a new OTP.",
+      });
     }
 
     // Check if the entered OTP matches the stored OTP
@@ -96,19 +101,27 @@ const verifyOtp = async (req, res) => {
       latestOTP.verified = true;
       await otpRecord.save();
 
-      return res.status(200).send({ message: "OTP verified successfully" });
+      return res.status(200).send({
+        success: true,
+        message: "OTP verified successfully",
+      });
     } else {
-      return res
-        .status(400)
-        .send({ error: "Invalid OTP", message: "Please enter a valid OTP." });
+      return res.status(400).send({
+        success: false,
+        error: "Invalid OTP",
+        message: "Please enter a valid OTP.",
+      });
     }
   } catch (error) {
     console.error("Error verifying OTP:", error);
-    res
-      .status(500)
-      .send({ error: "Internal server error", message: error.message });
+    res.status(500).send({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
   }
 };
+
 
 module.exports = { generateOtp, verifyOtp };
 

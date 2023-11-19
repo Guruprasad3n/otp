@@ -29,8 +29,10 @@ const Login: React.FC<LoginProps> = () => {
       const res = await axios.post(`http://localhost:3000/api/otp/generate`, {
         identifier: isMobile,
       });
+      console.log(res.data)
       // document.cookie = `mobileNumber=${encodeURIComponent(isMobile)}; path=/`;
-      Cookies.set("mobileNumber", isMobile);
+      const abc = Cookies.set("mobileNumber", isMobile);
+      console.log(abc)
       toast({
         title: "OTP Sending Please Wait",
         description: `We are sending an OTP to ${isMobile}.`,
@@ -49,15 +51,14 @@ const Login: React.FC<LoginProps> = () => {
         });
         navigate("/verify");
       }, 3000);
-      console.log(res);
     } catch (error) {
       setIsLoading(false);
       toast({
         title: `Enter Correct Mobile Number`,
+        description:`error`,
         status: `error`,
         isClosable: true,
       });
-      console.log(error);
     }
   };
   return (
